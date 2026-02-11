@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { generateQuestions } from "./services/api";
+import "./App.css";
 
 function App() {
   const [questions, setQuestions] = useState([]);
-  const [answers, setAnswers] = useState({})
+  const [answers, setAnswers] = useState({});
   const [topic, setTopic] = useState("");
-  const [score, setScore] = useState(0)
-
+  const [score, setScore] = useState(0);
 
   const handleGenerate = async () => {
     const ai_questions = await generateQuestions(topic);
@@ -15,58 +15,80 @@ function App() {
   };
 
   const handleAnswer = (questionIndex, option) => {
-
-    if (answers[questionIndex]) return
+    if (answers[questionIndex]) return;
 
     setAnswers({
       ...answers,
-      [questionIndex]: option
-    })
-    if (option === questions[questionIndex].answer){
-      setScore(score + 1)
+      [questionIndex]: option,
+    });
+    if (option === questions[questionIndex].answer) {
+      setScore(score + 1);
     }
-  }
+  };
 
   return (
-    <div style={{ padding: 20 }}>
-      <h1>BookQ</h1>
-      <h2>Score: {score} / {questions.length}</h2>
+    <div className="container">
+      <h1 className="title">BookQ</h1>
+      <div className="score">
+        Score: {score} / {questions.length}
+      </div>
 
-      <input
-        value={topic}
-        onChange={(e) => setTopic(e.target.value)}
-        placeholder="Skriv ämne"
-      />
-      <button onClick={handleGenerate}>Generera frågor</button>
+      <div className="controls">
+        <input
+          className="topic-input"
+          value={topic}
+          onChange={(e) => setTopic(e.target.value)}
+          placeholder="Skriv ämne"
+        />
+        <button className="generate-btn" onClick={handleGenerate}>
+          Generera frågor
+        </button>
+      </div>
 
-      <hr />
+      <div className="questions">
+        {questions.map((q, qIndex) => (
+          <div key={qIndex} className="question-card">
+            <h3>{q.question}</h3>
 
-      {questions.map((q, qIndex) => (
-        <div key={qIndex}>
-          <h3>{q.question}</h3>
+            <div className="options">
+              {q.options.map((option, oIndex) => {
+                const isAnswered = answers[qIndex];
+                const isCorrect = option === q.answer;
+                const isSelected = answers[qIndex] === option;
 
-          {q.options.map((option, oIndex) => (
-            <button
-              key={oIndex}
-              onClick={() => handleAnswer(qIndex, option)}
-              style={{ display: "block", marginBottom: 5 }}
-            >
-              {option}
-            </button>
-          ))}
+                return (
+                  <button
+                    key={oIndex}
+                    className={`option-btn ${
+                      isAnswered
+                        ? isCorrect
+                          ? "correct"
+                          : isSelected
+                            ? "wrong"
+                            : ""
+                        : ""
+                    }`}
+                    onClick={() => handleAnswer(qIndex, option)}
+                    disabled={isAnswered}
+                  >
+                    {option}
+                  </button>
+                );
+              })}
+            </div>
 
-          {answers[qIndex] && (
-            <p>
-              {answers[qIndex] === q.answer
-                ? " Rätt!"
-                : ` Fel. Rätt svar är: ${q.answer}`
-                }
-            </p>
-          )}
-
-          <hr />
-        </div>
-      ))}
+            {answers[qIndex] && (
+              <p
+                className={`feedback ${answers[qIndex] === q.answer ? "correct" : "wrong"}`}
+              >
+                {answers[qIndex] === q.answer
+                  ? " Rätt!"
+                  : `Fel. Rätt svar är: ${q.answer}`}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
