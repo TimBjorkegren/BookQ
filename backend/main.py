@@ -24,7 +24,7 @@ class GenerateRequest(BaseModel):
 @app.post("/generate")
 async def generate_questions(req: GenerateRequest):
     prompt = f"""
-Skapa 3 faktabaserade flervalsfrågor för ämnet: {req.topic}.
+Skapa 5 faktabaserade flervalsfrågor för ämnet: {req.topic}.
 Returnera alltid resultatet som en JSON-array med objekt med fälten:
 - question: själva frågan
 - options: en lista med svarsalternativ
