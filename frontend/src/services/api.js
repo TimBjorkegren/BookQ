@@ -1,10 +1,9 @@
-
-export async function generateQuestions(topic) {
+export async function generateQuestions(collectionName) {
   try {
     const res = await fetch("/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topic })
+      body: JSON.stringify({ collection_name: collectionName }),
     });
 
     if (!res.ok) {
@@ -13,9 +12,25 @@ export async function generateQuestions(topic) {
 
     const data = await res.json();
 
-    return data.questions;
+    return data.questions || [];
   } catch (error) {
     console.error("Error fetching questions:", error);
-    return []; 
+    return [];
   }
+}
+
+export async function uploadDocument(file) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await fetch("/upload", {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    throw new Error("Cant upload document");
+  }
+
+  return await res.json();
 }

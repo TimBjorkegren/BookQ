@@ -1,17 +1,46 @@
 import { useState } from "react";
-import { generateQuestions } from "./services/api";
+import { generateQuestions, uploadDocument } from "./services/api";
 import "./App.css";
 
 function App() {
   const [questions, setQuestions] = useState([]);
   const [answers, setAnswers] = useState({});
-  const [topic, setTopic] = useState("");
   const [score, setScore] = useState(0);
+  const [file, setFile] = useState(null);
+  const [collectionName, setCollectionName] = useState("");
+
+  const handleFileChange = (e) => {
+    setFile(e.target.files[0]);
+  };
+
+  const handleUpload = async () => {
+    if (!file) return alert("Välj ett dokument först");
+    try {
+      const response = await uploadDocument(file);
+      setCollectionName(response.collection);
+      alert(`Dokument uppladdat! collection: ${response.collection}`);
+    } catch (err) {
+      console.error(err);
+      alert("Gick fel vid uppladdning");
+    }
+  };
 
   const handleGenerate = async () => {
-    const ai_questions = await generateQuestions(topic);
-    setQuestions(ai_questions);
-    setAnswers({});
+    if (!collectionName) return alert("ladda upp ett dokument först");
+    try {
+      const ai_questions = await generateQuestions(collectionName);
+      console.log("AI questions:", ai_questions);
+      if (!ai_questions || ai_questions.length === 0) {
+        alert("Inga frågor genererades. Kontrollera dokumentet eller backend.");
+        return;
+      }
+      setQuestions(ai_questions);
+      setAnswers({});
+      setScore(0);
+    } catch (err) {
+      console.error(err);
+      alert("Något fick fel vid generering av frågor");
+    }
   };
 
   const handleAnswer = (questionIndex, option) => {
@@ -30,16 +59,12 @@ function App() {
     <div className="container">
       <h1 className="title">BookQ</h1>
       <div className="score">
-        Score: {score} / {questions.length}
+        Score: {score} / {questions?.length || 0}
       </div>
 
       <div className="controls">
-        <input
-          className="topic-input"
-          value={topic}
-          onChange={(e) => setTopic(e.target.value)}
-          placeholder="Skriv ämne"
-        />
+        <input type="file" onChange={handleFileChange} />
+        <button onClick={handleUpload}>ladda upp ett dokument</button>
         <button className="generate-btn" onClick={handleGenerate}>
           Generera frågor
         </button>
