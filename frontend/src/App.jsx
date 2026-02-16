@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { generateQuestions, uploadDocument } from "./services/api";
 import "./App.css";
 
@@ -8,10 +8,28 @@ function App() {
   const [score, setScore] = useState(0);
   const [file, setFile] = useState(null);
   const [collectionName, setCollectionName] = useState("");
+  const [loadingQuestions, setLoadingQuestions] = useState(false);
 
-  const handleFileChange = (e) => {
-    setFile(e.target.files[0]);
+  const handleFileChange = async (e) => {
+    const selectedFile = e.target.files[0];
+    if (!selectedFile) return;
+
+    setFile(selectedFile);
+
+    try {
+      const response = await uploadDocument(selectedFile);
+      setCollectionName(response.collection);
+    } catch (error) {
+      console.error(error);
+      alert("Något gick fel vid uppladdning");
+    }
   };
+
+  useEffect(() => {
+    if (collectionName) {
+      localStorage.setItem("collection", collectionName);
+    }
+  }, [collectionName]);
 
   const handleUpload = async () => {
     if (!file) return alert("Välj ett dokument först");
@@ -27,19 +45,25 @@ function App() {
 
   const handleGenerate = async () => {
     if (!collectionName) return alert("ladda upp ett dokument först");
+
     try {
+      setLoadingQuestions(true);
       const ai_questions = await generateQuestions(collectionName);
       console.log("AI questions:", ai_questions);
-      if (!ai_questions || ai_questions.length === 0) {
+
+      if (!ai_questions?.length) {
         alert("Inga frågor genererades. Kontrollera dokumentet eller backend.");
         return;
       }
+
       setQuestions(ai_questions);
       setAnswers({});
       setScore(0);
     } catch (err) {
       console.error(err);
       alert("Något fick fel vid generering av frågor");
+    } finally {
+      setLoadingQuestions(false);
     }
   };
 
@@ -63,10 +87,19 @@ function App() {
       </div>
 
       <div className="controls">
-        <input type="file" onChange={handleFileChange} />
-        <button onClick={handleUpload}>ladda upp ett dokument</button>
-        <button className="generate-btn" onClick={handleGenerate}>
-          Generera frågor
+        <label className="file-upload">
+          <input type="file" onChange={handleFileChange} hidden />
+          Välj dokument
+        </label>
+
+        {collectionName && <p className="status success">Dokument uppladdat</p>}
+
+        <button
+          className="generate-btn"
+          onClick={handleGenerate}
+          disabled={!collectionName}
+        >
+          {questions.length ? "Generera nya frågor" : "Generera frågor"}
         </button>
       </div>
 
