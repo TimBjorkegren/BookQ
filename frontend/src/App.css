@@ -89,6 +89,13 @@ h1 {
   color: #065f46;
 }
 
+.option-btn.selected {
+  background-color: #dbeafe;
+  border-color: #2563eb;
+  color: #1e3a8a;
+  font-weight: 600;
+}
+
 .option-btn.wrong {
   background-color: #fecaca;
   border-color: #dc2626;
@@ -133,4 +140,20 @@ h1 {
 html,
 body {
   background-color: rgb(43, 45, 48);
+}
+
+.progress {
+  height: 8px;
+  background: #1e293b;
+  border-radius: 4px;
+}
+
+.progress-bar {
+  height: 100%;
+  background: #4f46e5;
+  transition: width 0.3s ease;
+}
+
+.results {
+  color: white;
 }

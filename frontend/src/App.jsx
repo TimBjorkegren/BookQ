@@ -5,7 +5,8 @@ import "./App.css";
 function App() {
   const [questions, setQuestions] = useState([]);
   const [answers, setAnswers] = useState({});
-  const [score, setScore] = useState(0);
+  const [currentQuestion, setCurrentQuestion] = useState(0);
+  const [submitted, setSubmitted] = useState(false);
   const [file, setFile] = useState(null);
   const [collectionName, setCollectionName] = useState("");
   const [loadingQuestions, setLoadingQuestions] = useState(false);
@@ -14,11 +15,13 @@ function App() {
     const selectedFile = e.target.files[0];
     if (!selectedFile) return;
 
-    setFile(selectedFile);
-
     try {
       const response = await uploadDocument(selectedFile);
       setCollectionName(response.collection);
+      setQuestions([]);
+      setAnswers([]);
+      setSubmitted(false);
+      setCurrentQuestion(0);
     } catch (error) {
       console.error(error);
       alert("Något gick fel vid uppladdning");
@@ -44,21 +47,21 @@ function App() {
   };
 
   const handleGenerate = async () => {
-    if (!collectionName) return alert("ladda upp ett dokument först");
+    if (!collectionName) return;
 
     try {
       setLoadingQuestions(true);
       const ai_questions = await generateQuestions(collectionName);
-      console.log("AI questions:", ai_questions);
 
       if (!ai_questions?.length) {
-        alert("Inga frågor genererades. Kontrollera dokumentet eller backend.");
+        alert("Inga frågor genererades.");
         return;
       }
 
       setQuestions(ai_questions);
       setAnswers({});
-      setScore(0);
+      setCurrentQuestion(0);
+      setSubmitted(false);
     } catch (err) {
       console.error(err);
       alert("Något fick fel vid generering av frågor");
@@ -67,24 +70,37 @@ function App() {
     }
   };
 
-  const handleAnswer = (questionIndex, option) => {
-    if (answers[questionIndex]) return;
-
+  const handleAnswer = (option) => {
     setAnswers({
       ...answers,
-      [questionIndex]: option,
+      [currentQuestion]: option,
     });
-    if (option === questions[questionIndex].answer) {
-      setScore(score + 1);
-    }
   };
+
+  const calcScore = () => {
+    let score = 0;
+    questions.forEach((q, i) => {
+      if (answers[i] === q.answer) score++;
+    });
+    return score;
+  };
+
+  const grade = (score, total) => {
+    const percent = (score / total) * 100;
+    if (percent >= 90) return "A";
+    if (percent >= 80) return "B";
+    if (percent >= 70) return "C";
+    if (percent >= 60) return "D";
+    if (percent >= 50) return "E";
+    return "F";
+  };
+
+  const studentScore = calcScore();
+  const q = questions[currentQuestion];
 
   return (
     <div className="container">
       <h1 className="title">BookQ</h1>
-      <div className="score">
-        Score: {score} / {questions?.length || 0}
-      </div>
 
       <div className="controls">
         <label className="file-upload">
@@ -97,56 +113,99 @@ function App() {
         <button
           className="generate-btn"
           onClick={handleGenerate}
-          disabled={!collectionName}
+          disabled={!collectionName || loadingQuestions}
         >
-          {questions.length ? "Generera nya frågor" : "Generera frågor"}
+          {loadingQuestions
+            ? "Genererar..."
+            : questions.length
+              ? "Genererar nya frågor"
+              : "Generera frågor"}
         </button>
       </div>
 
-      <div className="questions">
-        {questions.map((q, qIndex) => (
-          <div key={qIndex} className="question-card">
-            <h3>{q.question}</h3>
+      {questions.length > 0 && !submitted && (
+        <div className="progress">
+          <div
+            className="progress-bar"
+            style={{
+              width: `${((currentQuestion + 1) / questions.length) * 100}%`,
+            }}
+          />
+        </div>
+      )}
 
-            <div className="options">
-              {q.options.map((option, oIndex) => {
-                const isAnswered = answers[qIndex];
-                const isCorrect = option === q.answer;
-                const isSelected = answers[qIndex] === option;
+      {q && !submitted && (
+        <div className="question-card">
+          <h3>
+            Fråga {currentQuestion + 1} / {questions.length}
+          </h3>
 
-                return (
-                  <button
-                    key={oIndex}
-                    className={`option-btn ${
-                      isAnswered
-                        ? isCorrect
-                          ? "correct"
-                          : isSelected
-                            ? "wrong"
-                            : ""
-                        : ""
-                    }`}
-                    onClick={() => handleAnswer(qIndex, option)}
-                    disabled={isAnswered}
-                  >
-                    {option}
-                  </button>
-                );
-              })}
-            </div>
+          <p>{q.question}</p>
 
-            {answers[qIndex] && (
-              <p
-                className={`feedback ${answers[qIndex] === q.answer ? "correct" : "wrong"}`}
+          <div className="options">
+            {q.options.map((option, idx) => (
+              <button
+                key={idx}
+                className={`option-btn ${
+                  answers[currentQuestion] === option ? "selected" : ""
+                }`}
+                onClick={() => handleAnswer(option)}
               >
-                {answers[qIndex] === q.answer
-                  ? " Rätt!"
-                  : `Fel. Rätt svar är: ${q.answer}`}
-              </p>
+                {option}
+              </button>
+            ))}
+          </div>
+
+          <div className="navigation">
+            <button
+              onClick={() => setCurrentQuestion((i) => i - 1)}
+              disabled={currentQuestion === 0}
+            >
+              ← Föregående
+            </button>
+
+            {currentQuestion < questions.length - 1 ? (
+              <button
+                onClick={() => setCurrentQuestion((i) => i + 1)}
+                disabled={answers[currentQuestion] == null}
+              >
+                Nästa →
+              </button>
+            ) : (
+              <button
+                className="submit-btn"
+                onClick={() => setSubmitted(true)}
+                disabled={answers[currentQuestion] == null}
+              >
+                Lämna in
+              </button>
             )}
           </div>
-        ))}
-      </div>
+        </div>
+      )}
+      {submitted && (
+        <div className="results">
+          <h2>🎉 Resultat</h2>
+          <p>
+            Poäng: {studentScore} / {questions.length}
+          </p>
+          <h3>Betyg: {grade(studentScore, questions.length)}</h3>
+
+          {questions.map((q, i) => (
+            <div key={i} className="result-question">
+              <p>
+                <strong>{q.question}</strong>
+              </p>
+              <p className={answers[i] === q.answer ? "correct" : "wrong"}>
+                Ditt svar: {answers[i]}
+              </p>
+              {answers[i] !== q.answer && (
+                <p className="correct">Rätt svar: {q.answer}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
