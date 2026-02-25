@@ -34,3 +34,23 @@ export async function uploadDocument(file) {
 
   return await res.json();
 }
+
+export async function generateQuestionsReasoning(question, answer) {
+  const res = await fetch("/generate_reasoning", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      question: question.question,
+      student_answer: answer.text,
+      explanation: answer.explanation,
+      keywords: question.keywords,
+      max_score: question.max_score,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error("Generate reasoning questions went wrong!");
+  }
+
+  return await res.json();
+}
