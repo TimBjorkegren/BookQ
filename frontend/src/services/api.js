@@ -1,22 +1,17 @@
 export async function generateQuestions(collectionName) {
-  try {
-    const res = await fetch("/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ collection_name: collectionName }),
-    });
+  const res = await fetch("/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ collection_name: collectionName }),
+  });
 
-    if (!res.ok) {
-      throw new Error("Backend returned an error: " + res.status);
-    }
+  const data = await res.json();
 
-    const data = await res.json();
-
-    return data.questions || [];
-  } catch (error) {
-    console.error("Error fetching questions:", error);
-    return [];
+  if (!res.ok) {
+    throw new Error(data.detail || data.error || "Backend returned an error");
   }
+
+  return data.questions || [];
 }
 
 export async function uploadDocument(file) {
@@ -28,29 +23,33 @@ export async function uploadDocument(file) {
     body: formData,
   });
 
+  const data = await res.json();
+
   if (!res.ok) {
-    throw new Error("Cant upload document");
+    throw new Error(data.detail || data.error || "Kunde inte ladda upp dokumentet");
   }
 
-  return await res.json();
+  return data;
 }
 
-export async function generateQuestionsReasoning(question, answer) {
-  const res = await fetch("/generate_reasoning", {
+export async function gradeReasoningAnswer(question, answer = {}) {
+  const res = await fetch("/grade_reasoning", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       question: question.question,
-      student_answer: answer.text,
-      explanation: answer.explanation,
+      student_answer: answer.text || "",
+      explanation: answer.explanation || "",
       keywords: question.keywords,
       max_score: question.max_score,
     }),
   });
 
+  const data = await res.json();
+
   if (!res.ok) {
-    throw new Error("Generate reasoning questions went wrong!");
+    throw new Error(data.detail || data.error || "Kunde inte rätta resonemangssvaret");
   }
 
-  return await res.json();
+  return data;
 }

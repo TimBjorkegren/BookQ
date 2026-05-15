@@ -1,204 +1,235 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi import UploadFile, File
 from pydantic import BaseModel
 from openai import OpenAI
-import json
-
-import numpy as np
+from dotenv import load_dotenv
 from PyPDF2 import PdfReader
 import docx
-from qdrant_client import QdrantClient, models
-from qdrant_client.models import Distance, VectorParams, PointStruct
-import uuid
-from dotenv import load_dotenv
+import json
 import os
+import re
+import uuid
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, VectorParams, PointStruct
 
-#---------------- setup ---------------------------------
 load_dotenv()
-
-api_key = os.getenv("OPENAI_API_KEY")
-client = OpenAI(api_key=api_key)
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 qdrant = QdrantClient(
     url=os.getenv("QDRANT_URL"),
-    api_key=os.getenv("QDRANT_API_KEY")
+    api_key=os.getenv("QDRANT_API_KEY"),
 )
 
 app = FastAPI()
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-
 class GenerateRequest(BaseModel):
     collection_name: str
 
-# ------------------endpoints ------------------------------
 
-import re
+class GradeReasoningRequest(BaseModel):
+    question: str
+    student_answer: str = ""
+    explanation: str = ""
+    keywords: list[str] = []
+    max_score: int
+
 
 @app.post("/generate")
-async def generate_questions(req: GenerateRequest):
-    try:
-        chunks = search_qdrant("", req.collection_name, top_k=10)
-        if not chunks:
-            return {"error": "Inga resultat hittades i dokumentet"}
+async def generate(req: GenerateRequest):
+    chunks = get_document_chunks(req.collection_name, 12)
+    if not chunks:
+        raise HTTPException(status_code=404, detail="Kunde inte hitta text fran dokumentet.")
 
-        # Skapa prompt
-        prompt = f"""
-Skapa 5 faktabaserade flervalsfrågor baserat på följande text:
-{"".join(chunks)}
+    document_text = "\n\n".join(chunks)
+    prompt = f"""
+Du ar en pedagogisk studiecoach. Skapa fragor som hjalper studenten att forsta, minnas och resonera om dokumentet.
 
-Returnera alltid resultatet som en JSON-array med objekt med fälten:
-- question: själva frågan
-- options: en lista med svarsalternativ
-- answer: korrekt svar
+Skapa exakt 5 fragor:
+- 3 flervalsfragor (type=mcq)
+- 2 resonemangsfragor (type=reasoning)
 
-Exempel på korrekt JSON-format:
+Regler:
+- Fragorna ska vara pa svenska.
+- Anvand bara information fran texten.
+- Flervalsfragor ska ha exakt 4 svarsalternativ.
+- answer maste vara exakt samma text som ett av alternativen.
+- Resonemangsfragor ska krava forklaring, jamforelse eller tillampning.
+- Returnera endast giltig JSON.
 
+JSON-format:
 [
   {{
-    "question": "Vad är Sveriges huvudstad?",
-    "options": ["Malmö","Göteborg","Stockholm","Uppsala"],
-    "answer": "Stockholm"
+    "type": "mcq",
+    "question": "...",
+    "options": ["...", "...", "...", "..."],
+    "answer": "...",
+    "explanation": "Kort forklaring av varfor svaret ar ratt."
+  }},
+  {{
+    "type": "reasoning",
+    "question": "...",
+    "keywords": ["..."],
+    "max_score": 3,
+    "expected_answer": "Kort exempel pa vad ett bra svar bor innehalla."
   }}
-] 
+]
+
+TEXT:
+{document_text}
 """
 
-        # Skicka till OpenAI
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7
-        )
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.5,
+    )
 
-        questions_text = response.choices[0].message.content
-
-        # Försök extrahera JSON med regex (säker mot extra text)
-        match = re.search(r"\[.*\]", questions_text, re.DOTALL)
-        if not match:
-            return {"error": "Kunde inte hitta JSON i OpenAI-svaret", "raw": questions_text}
-
-        questions_json = json.loads(match.group())
-        return {"questions": questions_json}
-
-    except Exception as e:
-        return {"error": "Något gick fel", "details": str(e)}
-
-    
+    return {"questions": parse_json_array(response.choices[0].message.content)}
 
 
+@app.post("/grade_reasoning")
+async def grade(req: GradeReasoningRequest):
+    prompt = f"""
+Bedom elevens svar rattvist och pedagogiskt.
 
-# QDRANT
+Fraga: {req.question}
+Svar: {req.student_answer}
+Elevens forklaring: {req.explanation}
+Begrepp: {", ".join(req.keywords)}
+Maxpoang: {req.max_score}
+
+Ge poang utifran:
+- om svaret faktiskt besvarar fragan
+- om eleven anvander relevanta begrepp
+- om forklaringen visar forstaelse, inte bara gissning
+
+Returnera endast giltig JSON:
+{{"score": 0, "max_score": {req.max_score}, "feedback": "...", "improvement_tip": "..."}}
+"""
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.2,
+    )
+
+    result = parse_json_object(response.choices[0].message.content)
+    score = int(result.get("score", 0))
+    result["score"] = max(0, min(score, req.max_score))
+    result["max_score"] = req.max_score
+    return result
+
+
+@app.post("/generate_reasoning")
+async def grade_reasoning_legacy(req: GradeReasoningRequest):
+    return await grade(req)
+
 
 @app.post("/upload")
-async def upload_document(file: UploadFile = File(...)):
-    try:
-        text = read_file(file)
-        chunks = chunk_text(text)
-        embeddings = create_embeddings(chunks, client)
-        collection_name = collection_name_from_file(file.filename)
-        does_collection_exist(collection_name)
-        upload_to_qdrant(chunks, embeddings, collection_name)
+async def upload(file: UploadFile = File(...)):
+    text = read_file(file)
+    chunks = chunk_text(text)
+    if not chunks:
+        raise HTTPException(status_code=400, detail="Dokumentet verkar inte innehalla lasbar text.")
 
-        return {"message": "Document uploaded", "collection": collection_name}
-    
-    except Exception as e:
-        return {"error": str(e)}
+    embeddings = embed(chunks)
+    collection_name = collection_name_from_file(file.filename)
 
-
-def does_collection_exist(collection_name):
-    collections = qdrant.get_collections().collections
-    existing = [c.name for c in collections]
-    if collection_name not in existing:
+    if collection_name not in [c.name for c in qdrant.get_collections().collections]:
         qdrant.create_collection(
-            collection_name=collection_name,
-            vectors_config=VectorParams(
-                size=1536,
-                distance=Distance.COSINE
-            )
+            collection_name,
+            vectors_config=VectorParams(size=1536, distance=Distance.COSINE),
         )
+
+    qdrant.upsert(
+        collection_name=collection_name,
+        points=[
+            PointStruct(
+                id=str(uuid.uuid4()),
+                vector=embedding,
+                payload={"text": chunk},
+            )
+            for chunk, embedding in zip(chunks, embeddings)
+        ],
+    )
+
+    return {"collection": collection_name}
+
+
+def parse_json_array(content):
+    match = re.search(r"\[.*\]", content or "", re.S)
+    if not match:
+        raise HTTPException(status_code=502, detail="AI-svaret inneholl ingen JSON-lista.")
+    try:
+        return json.loads(match.group())
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=502, detail="AI-svaret var inte giltig JSON.") from exc
+
+
+def parse_json_object(content):
+    match = re.search(r"\{.*\}", content or "", re.S)
+    if not match:
+        raise HTTPException(status_code=502, detail="AI-svaret inneholl inget JSON-objekt.")
+    try:
+        return json.loads(match.group())
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=502, detail="AI-svaret var inte giltig JSON.") from exc
 
 
 def collection_name_from_file(filename):
-    name = filename.lower().replace(" ", "_").replace(".", "_")
-    return f"doc_{name}"
-    
+    safe_name = re.sub(r"[^a-zA-Z0-9_-]+", "_", filename.lower()).strip("_")
+    suffix = uuid.uuid4().hex[:8]
+    return f"doc_{safe_name or 'document'}_{suffix}"
 
-def upload_to_qdrant(chunks, embeddings, document_name):
-    points = [
-        PointStruct(
-            id=str(uuid.uuid4()),
-            vector=embedding.tolist() if isinstance(embedding, np.ndarray) else embedding,
-            payload={"text": chunk, "document_name": document_name}
-        )
-        for chunk, embedding in zip(chunks, embeddings)
-    ]
 
-    qdrant.upsert(
-        collection_name=document_name,
-        points=points
-    )
+def chunk_text(text, chunk_size=1000, overlap=150):
+    cleaned = re.sub(r"\s+", " ", text or "").strip()
+    if not cleaned:
+        return []
 
-def search_qdrant(question, collection_name, top_k=5):
-    response = client.embeddings.create(
-        model="text-embedding-3-small",
-        input=question
-    )
-    query_embedding = response.data[0].embedding
-
-    results = qdrant.query_points(
-        collection_name=collection_name,
-        prefetch=[],
-        query=query_embedding,
-        limit=top_k
-    )
-    print("Qdrant search results:", results.points)
-
-    texts = []
-    for matches in results.points:
-        texts.append(matches.payload["text"])
-
-    
-    return texts
-
-# FILE
-def read_file(file: UploadFile):
-    text = ""
-    if file.content_type == "application/pdf":
-        reader = PdfReader(file.file)
-        for page in reader.pages:
-            text += page.extract_text() + "\n"
-    elif file.content_type == "text/plain":
-        text = file.file.read().decode("utf-8")
-    elif file.content_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-        doc = docx.Document(file.file)
-        for para in doc.paragraphs:
-            text += para.text + "\n"
-    else:
-        raise ValueError("Filformatet stöds inte!")
-    return text
-
-def chunk_text(text, chunksize=800):
     chunks = []
-    for i in range(0, len(text), chunksize):
-        chunks.append(text[i:i + chunksize])
+    start = 0
+    while start < len(cleaned):
+        end = min(start + chunk_size, len(cleaned))
+        chunks.append(cleaned[start:end])
+        if end == len(cleaned):
+            break
+        start = max(end - overlap, start + 1)
     return chunks
 
-def create_embeddings(chunks, client):
-    embeddings = []
-    for chunk in chunks:
-        response = client.embeddings.create(
+
+def embed(chunks):
+    return [
+        client.embeddings.create(
             model="text-embedding-3-small",
-            input=chunk
-        )
-        embeddings.append(response.data[0].embedding)
-    return embeddings
-    
+            input=chunk,
+        ).data[0].embedding
+        for chunk in chunks
+    ]
+
+
+def get_document_chunks(collection_name, limit):
+    points, _ = qdrant.scroll(
+        collection_name=collection_name,
+        limit=limit,
+        with_payload=True,
+        with_vectors=False,
+    )
+    return [p.payload["text"] for p in points if p.payload and p.payload.get("text")]
+
+
+def read_file(file):
+    if file.content_type == "application/pdf":
+        return "\n".join(page.extract_text() or "" for page in PdfReader(file.file).pages)
+    if file.content_type and file.content_type.endswith("wordprocessingml.document"):
+        return "\n".join(paragraph.text for paragraph in docx.Document(file.file).paragraphs)
+    if file.content_type == "text/plain":
+        return file.file.read().decode("utf-8")
+    raise HTTPException(status_code=400, detail="Filformatet stods inte. Ladda upp PDF, DOCX eller TXT.")
