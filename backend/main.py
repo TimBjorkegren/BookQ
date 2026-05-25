@@ -9,10 +9,11 @@ import json
 import os
 import re
 import uuid
+from pathlib import Path
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 qdrant = QdrantClient(
@@ -27,6 +28,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 
 
 class GenerateRequest(BaseModel):

@@ -1,0 +1,15 @@
+.git
+.gitignore
+.env
+*.env
+**/.env
+**/node_modules
+**/build
+**/dist
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.cache
+**/.DS_Store
+**/Thumbs.db
+frontend/README.md
