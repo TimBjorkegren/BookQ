@@ -139,26 +139,32 @@ async def upload(file: UploadFile = File(...)):
     if not chunks:
         raise HTTPException(status_code=400, detail="Dokumentet verkar inte innehalla lasbar text.")
 
-    embeddings = embed(chunks)
-    collection_name = collection_name_from_file(file.filename)
+    try:
+        embeddings = embed(chunks)
+        collection_name = collection_name_from_file(file.filename)
 
-    if collection_name not in [c.name for c in qdrant.get_collections().collections]:
-        qdrant.create_collection(
-            collection_name,
-            vectors_config=VectorParams(size=1536, distance=Distance.COSINE),
-        )
-
-    qdrant.upsert(
-        collection_name=collection_name,
-        points=[
-            PointStruct(
-                id=str(uuid.uuid4()),
-                vector=embedding,
-                payload={"text": chunk},
+        if collection_name not in [c.name for c in qdrant.get_collections().collections]:
+            qdrant.create_collection(
+                collection_name,
+                vectors_config=VectorParams(size=1536, distance=Distance.COSINE),
             )
-            for chunk, embedding in zip(chunks, embeddings)
-        ],
-    )
+
+        qdrant.upsert(
+            collection_name=collection_name,
+            points=[
+                PointStruct(
+                    id=str(uuid.uuid4()),
+                    vector=embedding,
+                    payload={"text": chunk},
+                )
+                for chunk, embedding in zip(chunks, embeddings)
+            ],
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Kunde inte skapa embeddings eller spara dokumentet: {exc}",
+        ) from exc
 
     return {"collection": collection_name}
 
@@ -206,6 +212,9 @@ def chunk_text(text, chunk_size=1000, overlap=150):
 
 
 def embed(chunks):
+    if not os.getenv("OPENAI_API_KEY"):
+        raise RuntimeError("OPENAI_API_KEY saknas i .env")
+
     return [
         client.embeddings.create(
             model="text-embedding-3-small",

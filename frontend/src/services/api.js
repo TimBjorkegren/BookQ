@@ -5,7 +5,7 @@ export async function generateQuestions(collectionName) {
     body: JSON.stringify({ collection_name: collectionName }),
   });
 
-  const data = await res.json();
+  const data = await parseResponse(res);
 
   if (!res.ok) {
     throw new Error(data.detail || data.error || "Backend returned an error");
@@ -23,7 +23,7 @@ export async function uploadDocument(file) {
     body: formData,
   });
 
-  const data = await res.json();
+  const data = await parseResponse(res);
 
   if (!res.ok) {
     throw new Error(data.detail || data.error || "Kunde inte ladda upp dokumentet");
@@ -45,11 +45,24 @@ export async function gradeReasoningAnswer(question, answer = {}) {
     }),
   });
 
-  const data = await res.json();
+  const data = await parseResponse(res);
 
   if (!res.ok) {
     throw new Error(data.detail || data.error || "Kunde inte rätta resonemangssvaret");
   }
 
   return data;
+}
+
+async function parseResponse(res) {
+  const contentType = res.headers.get("content-type") || "";
+
+  if (contentType.includes("application/json")) {
+    return await res.json();
+  }
+
+  const text = await res.text();
+  return {
+    detail: text || `Servern svarade med status ${res.status}`,
+  };
 }
