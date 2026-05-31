@@ -45,6 +45,8 @@ class GradeReasoningRequest(BaseModel):
     explanation: str = ""
     keywords: list[str] = []
     max_score: int
+    expected_answer: str = ""
+    collection_name: str = ""
 
 
 @app.post("/generate")
@@ -102,6 +104,16 @@ TEXT:
 
 @app.post("/grade_reasoning")
 async def grade(req: GradeReasoningRequest):
+    relevant_context = get_relevant_document_context(req)
+    context_section = (
+        f"""
+Relevant innehall fran dokumentet:
+{relevant_context}
+"""
+        if relevant_context
+        else "Relevant innehall fran dokumentet: Saknas.\n"
+    )
+
     prompt = f"""
 Bedom elevens svar rattvist och pedagogiskt.
 
@@ -109,12 +121,17 @@ Fraga: {req.question}
 Svar: {req.student_answer}
 Elevens forklaring: {req.explanation}
 Begrepp: {", ".join(req.keywords)}
+Exempel pa bra svar: {req.expected_answer}
 Maxpoang: {req.max_score}
+
+{context_section}
 
 Ge poang utifran:
 - om svaret faktiskt besvarar fragan
 - om eleven anvander relevanta begrepp
 - om forklaringen visar forstaelse, inte bara gissning
+- om svaret har tydliga paralleller till dokumentets relevanta innehall
+- om pastaenden stods av dokumentet. Ge inte poang for pastaenden som motsager dokumentet.
 
 Returnera endast giltig JSON:
 {{"score": 0, "max_score": {req.max_score}, "feedback": "...", "improvement_tip": "..."}}
@@ -238,6 +255,48 @@ def get_document_chunks(collection_name, limit):
         with_vectors=False,
     )
     return [p.payload["text"] for p in points if p.payload and p.payload.get("text")]
+
+
+def get_relevant_document_context(req, limit=4):
+    if not req.collection_name:
+        return ""
+
+    query_text = " ".join(
+        part
+        for part in [
+            req.question,
+            req.student_answer,
+            req.explanation,
+            req.expected_answer,
+            " ".join(req.keywords or []),
+        ]
+        if part
+    ).strip()
+
+    if not query_text:
+        return ""
+
+    try:
+        query_vector = embed([query_text])[0]
+        results = qdrant.query_points(
+            collection_name=req.collection_name,
+            query=query_vector,
+            limit=limit,
+            with_payload=True,
+            with_vectors=False,
+        )
+        chunks = [
+            point.payload["text"]
+            for point in results.points
+            if point.payload and point.payload.get("text")
+        ]
+    except Exception:
+        try:
+            chunks = get_document_chunks(req.collection_name, limit)
+        except Exception:
+            chunks = []
+
+    return "\n\n".join(f"Stycke {index + 1}: {chunk}" for index, chunk in enumerate(chunks))
 
 
 def read_file(file):

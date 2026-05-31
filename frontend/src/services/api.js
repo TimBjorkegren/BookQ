@@ -32,7 +32,7 @@ export async function uploadDocument(file) {
   return data;
 }
 
-export async function gradeReasoningAnswer(question, answer = {}) {
+export async function gradeReasoningAnswer(question, answer = {}, collectionName = "") {
   const res = await fetch("/grade_reasoning", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -42,6 +42,8 @@ export async function gradeReasoningAnswer(question, answer = {}) {
       explanation: answer.explanation || "",
       keywords: question.keywords,
       max_score: question.max_score,
+      expected_answer: question.expected_answer || "",
+      collection_name: collectionName,
     }),
   });
 

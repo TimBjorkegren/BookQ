@@ -144,7 +144,7 @@ function App() {
                 : question.explanation || `Rätt svar är ${question.answer}.`,
           };
         } else if (question.type === "reasoning") {
-          const result = await gradeReasoningAnswer(question, answer);
+          const result = await gradeReasoningAnswer(question, answer, collectionName);
           newResults[i] = {
             ...result,
             max_score: getQuestionMaxScore(question),
